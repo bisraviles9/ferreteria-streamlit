@@ -62,16 +62,28 @@ def prefijo_categoria(categoria):
     return (letras[:3] or "OTR").ljust(3, "X")
 
 
-def generar_codigo(categoria):
+def inicial_producto(nombre):
+    """Devuelve la inicial alfabética del nombre (incluidas ñ y tildes)."""
+    return next((c.upper() for c in nombre.strip() if c.isalpha()), "P")
+
+
+def generar_codigo(nombre, categoria):
+    """Formato nuevo: <inicial>-FER-<categoría>-<secuencia>.
+
+    Códigos antiguos no se modifican; su número se considera al continuar
+    la secuencia por categoría para no reutilizar números existentes.
+    """
     prefijo = prefijo_categoria(categoria)
-    codigos = [p["codigo"] for p in st.session_state.datos["productos"] if p["codigo"].startswith(f"FER-{prefijo}-")]
     numeros = []
-    for codigo in codigos:
+    for producto in st.session_state.datos["productos"]:
+        codigo = str(producto.get("codigo", ""))
+        if f"-{prefijo}-" not in codigo:
+            continue
         try:
             numeros.append(int(codigo.rsplit("-", 1)[1]))
         except (ValueError, IndexError):
             continue
-    return f"FER-{prefijo}-{max(numeros, default=0) + 1:04d}"
+    return f"{inicial_producto(nombre)}-FER-{prefijo}-{max(numeros, default=0) + 1:04d}"
 
 
 if "datos" not in st.session_state:
@@ -93,7 +105,16 @@ with pestanas[0]:
     st.subheader("Catálogo e inventario")
     if productos:
         busqueda = st.text_input("Buscar por código, nombre o categoría", key="buscar").strip().lower()
-        filtrados = [p for p in productos if busqueda in p["codigo"].lower() or busqueda in p["nombre"].lower() or busqueda in p["categoria"].lower()]
+        if len(busqueda) == 1:
+            # Una letra permite filtrar por inicial del código nuevo o del nombre antiguo.
+            filtrados = [p for p in productos
+                         if str(p.get("codigo", "")).lower().startswith(busqueda)
+                         or p["nombre"].strip().lower().startswith(busqueda)]
+        else:
+            filtrados = [p for p in productos
+                         if busqueda in str(p.get("codigo", "")).lower()
+                         or busqueda in p["nombre"].lower()
+                         or busqueda in p["categoria"].lower()]
         st.dataframe([
             {"Código": p["codigo"], "Producto": p["nombre"], "Categoría": p["categoria"],
              "Precio (USD)": p["precio_usd"], "Unidad": p.get("unidad", "unidad"),
@@ -124,14 +145,14 @@ with pestanas[1]:
             if not nombre.strip() or not categoria.strip() or not unidad.strip():
                 st.error("Completa el nombre, la categoría y la unidad.")
             else:
-                codigo = generar_codigo(categoria.strip())
+                codigo = generar_codigo(nombre.strip(), categoria.strip())
                 productos.append({"codigo": codigo, "nombre": nombre.strip(), "categoria": categoria.strip(),
                                   "precio_usd": round(precio, 2), "unidad": unidad.strip(),
                                   "stock": float(stock), "stock_minimo": float(minimo)})
                 guardar_datos()
                 st.success(f"Producto guardado con el código {codigo}.")
                 st.rerun()
-    st.caption("Las categorías y unidades se pueden personalizar. El código SKU es interno y no reemplaza un código de barras oficial.")
+    st.caption("Las categorías y unidades se pueden personalizar. El código SKU comienza con la inicial del producto y es interno; no reemplaza un código de barras oficial.")
 
 with pestanas[2]:
     st.subheader("Registrar venta")
